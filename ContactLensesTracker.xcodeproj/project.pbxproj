@@ -22,6 +22,7 @@
 		A10000C22B0000000000013 /* DataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000C12B0000000000013 /* DataManager.swift */; };
 		A10000C42B0000000000014 /* Colors.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000C32B0000000000014 /* Colors.swift */; };
 		A10000C62B0000000000015 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000C52B0000000000015 /* Typography.swift */; };
+		A10000D52B0000000000030 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000D42B0000000000029 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 		A10000C12B0000000000013 /* DataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataManager.swift; sourceTree = "<group>"; };
 		A10000C32B0000000000014 /* Colors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Colors.swift; sourceTree = "<group>"; };
 		A10000C52B0000000000015 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Typography.swift; sourceTree = "<group>"; };
+		A10000D42B0000000000029 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -124,6 +126,7 @@
 			children = (
 				A10000C32B0000000000014 /* Colors.swift */,
 				A10000C52B0000000000015 /* Typography.swift */,
+				A10000D42B0000000000029 /* Assets.xcassets */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -214,6 +217,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000D52B0000000000030 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
