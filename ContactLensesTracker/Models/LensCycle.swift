@@ -8,6 +8,32 @@
 
 import Foundation
 
+/// Container for current and historical lens cycles
+///
+/// This struct prevents history loss when starting new cycles or resetting.
+/// All previous cycles are preserved in the `previousCycles` array.
+struct CycleHistory: Codable, Sendable {
+    /// Currently active lens cycle
+    var currentCycle: LensCycle?
+
+    /// Array of completed/archived cycles
+    var previousCycles: [LensCycle]
+
+    init(currentCycle: LensCycle? = nil, previousCycles: [LensCycle] = []) {
+        self.currentCycle = currentCycle
+        self.previousCycles = previousCycles
+    }
+
+    /// Archives the current cycle and sets a new one
+    /// - Parameter newCycle: The new cycle to set as current
+    mutating func archiveAndStartNew(_ newCycle: LensCycle) {
+        if let current = currentCycle {
+            previousCycles.append(current)
+        }
+        currentCycle = newCycle
+    }
+}
+
 /// Represents a single contact lens usage cycle with wear date tracking
 ///
 /// This model tracks when lenses were started, the type of lenses being worn,

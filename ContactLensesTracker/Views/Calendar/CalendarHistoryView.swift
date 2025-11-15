@@ -94,10 +94,9 @@ struct CalendarHistoryView: View {
     }
 
     /// Formatted month/year string
+    /// Uses cached formatter for better performance
     private var monthYearString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
-        return formatter.string(from: displayedMonth)
+        return CachedDateFormatters.monthYear.string(from: displayedMonth)
     }
 
     // MARK: - Body
@@ -120,14 +119,10 @@ struct CalendarHistoryView: View {
                             isWorn: selectedDateIsWorn,
                             cycleDay: selectedDateCycleDay,
                             onRemove: {
-                                Task {
-                                    await viewModel.removeWearEntry(for: date)
-                                }
+                                viewModel.removeWearEntry(for: date)
                             },
                             onAdd: {
-                                Task {
-                                    await addWearEntry(for: date)
-                                }
+                                addWearEntry(for: date)
                             }
                         )
                         .padding(.horizontal)
@@ -349,24 +344,15 @@ struct CalendarHistoryView: View {
     }
 
     /// Adds a wear entry for the specified date
-    private func addWearEntry(for date: Date) async {
-        guard let cycle = viewModel.currentCycle else { return }
-
-        let updatedCycle = cycle.addWearEntry(for: date)
-        do {
-            try await DataManager.shared.updateCycle(updatedCycle)
-            await viewModel.loadData()
-        } catch {
-            viewModel.handleError(error)
-        }
+    /// FIXED: Now uses ViewModel method instead of direct DataManager access (architecture violation)
+    private func addWearEntry(for date: Date) {
+        viewModel.addWearEntry(for: date)
     }
 
     /// Formats a date for display in the recent entries list
+    /// Uses cached formatter for better performance
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        return CachedDateFormatters.medium.string(from: date)
     }
 
     /// Returns the cycle day number for a given date

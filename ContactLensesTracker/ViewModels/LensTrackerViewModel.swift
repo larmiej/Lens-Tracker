@@ -4,6 +4,8 @@
 //
 //  Main view model managing lens tracking state and business logic
 //  Coordinates between views, models, and data persistence
+//  FIXED: Removed detached Task from init to prevent race condition
+//  FIXED: Removed async/await from DataManager calls (now synchronous)
 //
 
 import Foundation
@@ -16,7 +18,7 @@ import SwiftUI
 /// user interactions, and provides computed properties for UI presentation.
 ///
 /// The view model uses Swift 6 concurrency features with @MainActor isolation to ensure
-/// all UI updates happen on the main thread, and coordinates with the DataManager actor
+/// all UI updates happen on the main thread, and coordinates with the DataManager
 /// for thread-safe data persistence.
 @MainActor
 @Observable
@@ -46,7 +48,7 @@ final class LensTrackerViewModel {
 
     // MARK: - Dependencies
 
-    /// Data manager actor for thread-safe persistence operations
+    /// Data manager for thread-safe persistence operations
     private let dataManager: DataManager
 
     // MARK: - Computed Properties
@@ -89,12 +91,8 @@ final class LensTrackerViewModel {
 
     /// Contextual status message based on cycle progress
     ///
-    /// Returns different messages based on the current day and max days:
-    /// - Days 1-10: Positive message about remaining time
-    /// - Days 11-12: Reminder about upcoming replacement
-    /// - Days 13-14: Warning about approaching replacement
-    /// - Day == maxDays: Urgent replacement message
-    /// - Day > maxDays: Overdue warning with count
+    /// Returns different messages based on the current day and max days using
+    /// consistent thresholds with the color system (0.67, 0.81, 1.0)
     var statusText: String {
         guard let cycle = currentCycle else {
             return "No active lens cycle"
@@ -120,15 +118,15 @@ final class LensTrackerViewModel {
             return "Replace today"
         }
 
-        // Calculate percentage for status thresholds
+        // Calculate percentage for status thresholds (matching Colors.swift thresholds)
         let percentage = Double(day) / Double(maxDays)
 
         switch percentage {
-        case 0..<0.71: // Days 1-10 for biweekly
+        case 0..<0.67: // Healthy range
             return "Looking good! \(remaining) \(remaining == 1 ? "day" : "days") until replacement"
-        case 0.71..<0.86: // Days 11-12 for biweekly
+        case 0.67..<0.81: // Caution range
             return "Replace in \(remaining) \(remaining == 1 ? "day" : "days")"
-        default: // Days 13-14 for biweekly
+        default: // Warning range (0.81 to <1.0)
             return "Replace soon - \(remaining) \(remaining == 1 ? "day" : "days") remaining"
         }
     }
@@ -152,31 +150,28 @@ final class LensTrackerViewModel {
 
     /// Creates a new view model instance
     ///
-    /// - Parameter dataManager: The data manager actor for persistence (defaults to shared instance)
-    init(dataManager: DataManager = .shared) {
+    /// FIXED: Removed detached Task from init to prevent race condition.
+    /// Views should call loadData() explicitly when needed using .task modifier.
+    ///
+    /// - Parameter dataManager: The data manager for persistence (defaults to shared instance)
+    nonisolated init(dataManager: DataManager = .shared) {
         self.dataManager = dataManager
-
-        // Load initial data
-        Task {
-            await loadData()
-        }
+        // Don't load data in init - let views trigger load with .task modifier
     }
 
     // MARK: - Data Loading
 
     /// Loads the current lens cycle from persistent storage
     ///
-    /// This method fetches the active cycle from the DataManager actor and updates
-    /// the UI state accordingly. It handles loading states and errors gracefully.
-    func loadData() async {
+    /// This method fetches the active cycle from the DataManager and updates
+    /// the UI state accordingly. It handles errors gracefully.
+    ///
+    /// FIXED: Now synchronous since DataManager is @MainActor
+    func loadData() {
         isLoading = true
         errorMessage = nil
 
-        do {
-            currentCycle = await dataManager.loadCycle()
-        } catch {
-            handleError(error)
-        }
+        currentCycle = dataManager.loadCycle()
 
         isLoading = false
     }
@@ -187,7 +182,7 @@ final class LensTrackerViewModel {
     ///
     /// This method adds today's date to the wear history, preventing duplicates.
     /// If the user has already logged today, this method is a no-op.
-    func logTodayWear() async {
+    func logTodayWear() {
         guard let cycle = currentCycle else {
             errorMessage = "No active lens cycle. Please start a new cycle first."
             return
@@ -203,7 +198,33 @@ final class LensTrackerViewModel {
 
         do {
             let updatedCycle = cycle.addWearEntry()
-            try await dataManager.updateCycle(updatedCycle)
+            try dataManager.updateCycle(updatedCycle)
+            currentCycle = updatedCycle
+        } catch {
+            handleError(error)
+        }
+
+        isLoading = false
+    }
+
+    /// Adds a wear entry for a specific date
+    ///
+    /// This method allows adding wear entries for past/future dates.
+    /// FIXED: Added this method to prevent architecture violation in CalendarHistoryView
+    ///
+    /// - Parameter date: The date to add as a wear entry
+    func addWearEntry(for date: Date) {
+        guard let cycle = currentCycle else {
+            errorMessage = "No active lens cycle found"
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let updatedCycle = cycle.addWearEntry(for: date)
+            try dataManager.updateCycle(updatedCycle)
             currentCycle = updatedCycle
         } catch {
             handleError(error)
@@ -218,7 +239,7 @@ final class LensTrackerViewModel {
     /// from the history. If the date isn't in the history, this is a no-op.
     ///
     /// - Parameter date: The date to remove from wear history
-    func removeWearEntry(for date: Date) async {
+    func removeWearEntry(for date: Date) {
         guard let cycle = currentCycle else {
             errorMessage = "No active lens cycle found"
             return
@@ -229,7 +250,7 @@ final class LensTrackerViewModel {
 
         do {
             let updatedCycle = cycle.removeWearEntry(for: date)
-            try await dataManager.updateCycle(updatedCycle)
+            try dataManager.updateCycle(updatedCycle)
             currentCycle = updatedCycle
         } catch {
             handleError(error)
@@ -242,18 +263,18 @@ final class LensTrackerViewModel {
 
     /// Starts a new lens cycle with the specified type and start date
     ///
-    /// This method creates a fresh lens cycle, replacing any existing cycle.
+    /// This method creates a fresh lens cycle, archiving any existing cycle.
     /// Use this when the user opens a new pair of lenses.
     ///
     /// - Parameters:
     ///   - type: The type of contact lens being tracked
     ///   - startDate: The date the cycle begins (defaults to today)
-    func startNewCycle(type: LensType, startDate: Date = Date()) async {
+    func startNewCycle(type: LensType, startDate: Date = Date()) {
         isLoading = true
         errorMessage = nil
 
         do {
-            let newCycle = try await dataManager.createNewCycle(
+            let newCycle = try dataManager.createNewCycle(
                 type: type,
                 startDate: startDate
             )
@@ -268,8 +289,12 @@ final class LensTrackerViewModel {
     /// Resets the current lens cycle to start fresh
     ///
     /// This method creates a new cycle with the same lens type but clears
-    /// all wear history and sets the start date to today.
-    func resetCycle() async {
+    /// all wear history and sets the start date to today. Archives old cycle.
+    ///
+    /// FIXED: Simplified to use createNewCycle() which properly handles archiving.
+    /// Previously, this method manually archived to a local history variable then
+    /// called saveCycle() which reloaded history internally, losing the archiving.
+    func resetCycle() {
         guard let cycle = currentCycle else {
             errorMessage = "No active lens cycle to reset"
             return
@@ -279,9 +304,12 @@ final class LensTrackerViewModel {
         errorMessage = nil
 
         do {
-            let resetCycle = cycle.reset()
-            try await dataManager.updateCycle(resetCycle)
-            currentCycle = resetCycle
+            // createNewCycle already handles archiving properly
+            let newCycle = try dataManager.createNewCycle(
+                type: cycle.lensType,
+                startDate: Date()
+            )
+            currentCycle = newCycle
         } catch {
             handleError(error)
         }
@@ -292,15 +320,15 @@ final class LensTrackerViewModel {
     /// Changes the lens type for the current cycle
     ///
     /// This method updates the lens type and resets the cycle since changing
-    /// lens types requires starting fresh tracking.
+    /// lens types requires starting fresh tracking. Archives old cycle.
     ///
     /// - Parameter type: The new lens type to track
-    func changeLensType(to type: LensType) async {
+    func changeLensType(to type: LensType) {
         isLoading = true
         errorMessage = nil
 
         do {
-            let newCycle = try await dataManager.createNewCycle(
+            let newCycle = try dataManager.createNewCycle(
                 type: type,
                 startDate: Date()
             )
@@ -349,10 +377,8 @@ extension LensTrackerViewModel {
         let viewModel = LensTrackerViewModel(dataManager: testManager)
 
         if withCycle {
-            Task {
-                try? await testManager.saveCycle(.sampleBiweekly)
-                await viewModel.loadData()
-            }
+            try? testManager.saveCycle(.sampleBiweekly)
+            viewModel.loadData()
         }
 
         return viewModel
@@ -369,10 +395,8 @@ extension LensTrackerViewModel {
         let testManager = DataManager.makeTestInstance()
         let viewModel = LensTrackerViewModel(dataManager: testManager)
 
-        Task {
-            try? await testManager.saveCycle(.sampleBiweekly)
-            await viewModel.loadData()
-        }
+        try? testManager.saveCycle(.sampleBiweekly)
+        viewModel.loadData()
 
         return viewModel
     }()
@@ -382,10 +406,8 @@ extension LensTrackerViewModel {
         let testManager = DataManager.makeTestInstance()
         let viewModel = LensTrackerViewModel(dataManager: testManager)
 
-        Task {
-            try? await testManager.saveCycle(.sampleOverdue)
-            await viewModel.loadData()
-        }
+        try? testManager.saveCycle(.sampleOverdue)
+        viewModel.loadData()
 
         return viewModel
     }()
@@ -395,10 +417,8 @@ extension LensTrackerViewModel {
         let testManager = DataManager.makeTestInstance()
         let viewModel = LensTrackerViewModel(dataManager: testManager)
 
-        Task {
-            try? await testManager.saveCycle(.sampleDaily)
-            await viewModel.loadData()
-        }
+        try? testManager.saveCycle(.sampleDaily)
+        viewModel.loadData()
 
         return viewModel
     }()

@@ -65,10 +65,8 @@ struct SettingsSheet: View {
                 }
                 Button("Change & Reset", role: .destructive) {
                     if let newType = pendingLensType {
-                        Task {
-                            await viewModel.changeLensType(to: newType)
-                            pendingLensType = nil
-                        }
+                        viewModel.changeLensType(to: newType)
+                        pendingLensType = nil
                     }
                 }
             } message: {
@@ -77,9 +75,7 @@ struct SettingsSheet: View {
             .alert("Reset Cycle?", isPresented: $showingResetConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Reset Cycle", role: .destructive) {
-                    Task {
-                        await viewModel.resetCycle()
-                    }
+                    viewModel.resetCycle()
                 }
             } message: {
                 Text("This will clear your current cycle and start fresh. Your history will be preserved.")
@@ -223,12 +219,10 @@ struct SettingsSheet: View {
             )
 
             Button {
-                Task {
-                    await viewModel.startNewCycle(
-                        type: selectedLensType,
-                        startDate: newStartDate
-                    )
-                }
+                viewModel.startNewCycle(
+                    type: selectedLensType,
+                    startDate: newStartDate
+                )
             } label: {
                 HStack {
                     Spacer()

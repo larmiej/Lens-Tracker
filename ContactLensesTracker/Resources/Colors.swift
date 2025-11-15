@@ -6,6 +6,7 @@
 //  Provides consistent color palette throughout the app
 //
 
+import Foundation
 import SwiftUI
 
 extension Color {
@@ -75,6 +76,44 @@ extension Color {
     static func colorForCycle(_ cycle: LensCycle) -> Color {
         colorForDay(cycle.currentDay, maxDays: cycle.lensType.maxDays)
     }
+}
+
+// MARK: - Cached DateFormatters
+
+/// Cached DateFormatter instances for the application
+///
+/// DateFormatter creation is expensive, so we cache commonly used formatters
+/// as static properties. This approach significantly improves performance when
+/// formatting dates repeatedly throughout the app.
+enum CachedDateFormatters {
+    /// Date formatter for medium date style (e.g., "Jan 15, 2024")
+    ///
+    /// Used in: DashboardView metadata section, CalendarHistoryView recent entries
+    static let medium: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    /// Date formatter for full date style (e.g., "Monday, January 15, 2024")
+    ///
+    /// Used in: DateDetailCard header
+    static let full: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .full
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    /// Date formatter for custom month-year format (e.g., "January 2024")
+    ///
+    /// Used in: CalendarHistoryView month navigation header
+    static let monthYear: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter
+    }()
 }
 
 // MARK: - Preview Helpers

@@ -39,11 +39,9 @@ struct DateDetailCard: View {
     // MARK: - Computed Properties
 
     /// Formatted date string for display
+    /// Uses cached formatter for better performance
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .full
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        return CachedDateFormatters.full.string(from: date)
     }
 
     /// Status text indicating if lenses were worn

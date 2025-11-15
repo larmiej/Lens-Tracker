@@ -3,7 +3,9 @@
 //  ContactLensesTracker
 //
 //  Service managing data persistence and retrieval
-//  Thread-safe actor for managing lens cycle data using UserDefaults
+//  Thread-safe @MainActor class for managing lens cycle data using UserDefaults
+//  FIXED: Changed from actor to @MainActor class - UserDefaults is already thread-safe
+//  FIXED: Now stores CycleHistory to prevent loss of historical data
 //
 
 import Foundation
@@ -29,21 +31,20 @@ enum DataManagerError: LocalizedError {
     }
 }
 
-/// Actor providing thread-safe data persistence for lens tracking
+/// MainActor class providing thread-safe data persistence for lens tracking
 ///
-/// This actor manages all data operations for the ContactLensesTracker app,
-/// ensuring thread-safe access to persistent storage. It uses UserDefaults
+/// This class manages all data operations for the ContactLensesTracker app,
+/// ensuring main-thread access to persistent storage. It uses UserDefaults
 /// for simple key-value storage with JSON encoding.
 ///
-/// All methods are async to maintain actor isolation and prevent data races.
-actor DataManager {
+/// IMPORTANT: All methods are synchronous now since UserDefaults is already thread-safe
+/// and @MainActor ensures consistent main-thread access.
+@MainActor
+final class DataManager {
     // MARK: - Properties
 
     /// Shared singleton instance for app-wide data access
     static let shared = DataManager()
-
-    /// Current active lens cycle
-    private var currentCycle: LensCycle?
 
     /// UserDefaults instance for persistence
     private let userDefaults: UserDefaults
@@ -69,12 +70,19 @@ actor DataManager {
         // Configure decoder
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
-
-        // Note: currentCycle is loaded lazily on first access
-        // This avoids actor isolation issues in the initializer
     }
 
     // MARK: - Public Methods
+
+    /// Loads the cycle history from storage
+    ///
+    /// This method retrieves the complete history including current and previous cycles.
+    /// It returns nil if no history has been saved yet.
+    ///
+    /// - Returns: The cycle history, or nil if none exists
+    func loadHistory() -> CycleHistory? {
+        return loadHistoryFromStorage()
+    }
 
     /// Loads the current lens cycle from storage
     ///
@@ -82,52 +90,28 @@ actor DataManager {
     /// It returns nil if no cycle has been saved yet.
     ///
     /// - Returns: The current lens cycle, or nil if none exists
-    func loadCycle() async -> LensCycle? {
-        // Return cached cycle if available
-        if let cycle = currentCycle {
-            return cycle
-        }
-
-        // Otherwise load from storage
-        currentCycle = await loadCycleFromStorage()
-        return currentCycle
+    func loadCycle() -> LensCycle? {
+        return loadHistory()?.currentCycle
     }
 
     /// Saves a lens cycle to persistent storage
     ///
     /// This method encodes the cycle to JSON and saves it to UserDefaults.
-    /// It also updates the in-memory cache for faster access.
+    /// When saving, it preserves all previous cycles in history.
     ///
     /// - Parameter cycle: The lens cycle to save
     /// - Throws: `DataManagerError.encodingFailed` if encoding fails
     /// - Throws: `DataManagerError.saveFailed` if save operation fails
-    func saveCycle(_ cycle: LensCycle) async throws {
-        do {
-            // Encode cycle to JSON data
-            let data = try encoder.encode(cycle)
-
-            // Save to UserDefaults
-            userDefaults.set(data, forKey: StorageKeys.currentCycle)
-
-            // Synchronize to ensure write completes
-            guard userDefaults.synchronize() else {
-                throw DataManagerError.saveFailed
-            }
-
-            // Update in-memory cache
-            currentCycle = cycle
-
-        } catch is EncodingError {
-            throw DataManagerError.encodingFailed
-        } catch {
-            throw DataManagerError.saveFailed
-        }
+    func saveCycle(_ cycle: LensCycle) throws {
+        var history = loadHistory() ?? CycleHistory()
+        history.currentCycle = cycle
+        try saveHistory(history)
     }
 
     /// Creates a new lens cycle and saves it
     ///
     /// This method creates a fresh lens cycle with the specified parameters
-    /// and immediately persists it to storage.
+    /// and immediately persists it to storage. The old cycle is archived to history.
     ///
     /// - Parameters:
     ///   - type: The type of contact lens
@@ -137,14 +121,18 @@ actor DataManager {
     func createNewCycle(
         type: LensType,
         startDate: Date = Date()
-    ) async throws -> LensCycle {
+    ) throws -> LensCycle {
         let cycle = LensCycle(
             startDate: startDate,
             lensType: type,
             wearDates: []
         )
 
-        try await saveCycle(cycle)
+        // Archive old cycle and save new one
+        var history = loadHistory() ?? CycleHistory()
+        history.archiveAndStartNew(cycle)
+        try saveHistory(history)
+
         return cycle
     }
 
@@ -155,49 +143,95 @@ actor DataManager {
     ///
     /// - Parameter cycle: The updated lens cycle to save
     /// - Throws: `DataManagerError.saveFailed` if save operation fails
-    func updateCycle(_ cycle: LensCycle) async throws {
-        try await saveCycle(cycle)
+    func updateCycle(_ cycle: LensCycle) throws {
+        try saveCycle(cycle)
     }
 
-    /// Deletes the current lens cycle
+    /// Deletes the current lens cycle (preserves history)
     ///
-    /// This method removes the cycle from both memory and persistent storage.
-    func deleteCycle() async {
-        currentCycle = nil
-        userDefaults.removeObject(forKey: StorageKeys.currentCycle)
-        userDefaults.synchronize()
+    /// This method removes the current cycle but keeps all archived cycles.
+    func deleteCycle() {
+        var history = loadHistory() ?? CycleHistory()
+        if let current = history.currentCycle {
+            history.previousCycles.append(current)
+            history.currentCycle = nil
+            try? saveHistory(history)
+        }
     }
 
     /// Checks if a lens cycle currently exists
     ///
     /// - Returns: `true` if a cycle exists in storage, `false` otherwise
-    func hasCycle() async -> Bool {
-        if currentCycle != nil {
-            return true
-        }
-
-        return await loadCycleFromStorage() != nil
+    func hasCycle() -> Bool {
+        return loadCycle() != nil
     }
 
     // MARK: - Private Methods
 
-    /// Loads cycle data from UserDefaults
+    /// Saves the complete cycle history to UserDefaults
     ///
-    /// - Returns: Decoded lens cycle, or nil if not found or decoding fails
-    private func loadCycleFromStorage() async -> LensCycle? {
+    /// Made public for future use cases that need direct history manipulation.
+    ///
+    /// - Parameter history: The cycle history to save
+    /// - Throws: `DataManagerError.encodingFailed` or `DataManagerError.saveFailed`
+    func saveHistory(_ history: CycleHistory) throws {
+        do {
+            let data = try encoder.encode(history)
+            userDefaults.set(data, forKey: StorageKeys.cycleHistory)
+        } catch is EncodingError {
+            throw DataManagerError.encodingFailed
+        } catch {
+            throw DataManagerError.saveFailed
+        }
+    }
+
+    /// Loads cycle history from UserDefaults
+    ///
+    /// - Returns: Decoded cycle history, or nil if not found or decoding fails
+    private func loadHistoryFromStorage() -> CycleHistory? {
         // Retrieve data from UserDefaults
-        guard let data = userDefaults.data(forKey: StorageKeys.currentCycle) else {
-            return nil
+        guard let data = userDefaults.data(forKey: StorageKeys.cycleHistory) else {
+            // Try migrating from old single-cycle storage
+            return migrateLegacyData()
         }
 
         // Attempt to decode
         do {
-            let cycle = try decoder.decode(LensCycle.self, from: data)
-            return cycle
+            let history = try decoder.decode(CycleHistory.self, from: data)
+            return history
         } catch {
             // Log decoding error in debug builds
             #if DEBUG
-            print("Failed to decode lens cycle: \(error)")
+            print("Failed to decode cycle history: \(error)")
+            #endif
+            return migrateLegacyData()
+        }
+    }
+
+    /// Migrates data from old single-cycle storage format
+    ///
+    /// - Returns: CycleHistory with migrated data, or nil if no legacy data exists
+    private func migrateLegacyData() -> CycleHistory? {
+        guard let data = userDefaults.data(forKey: StorageKeys.legacyCurrentCycle) else {
+            return nil
+        }
+
+        do {
+            let cycle = try decoder.decode(LensCycle.self, from: data)
+            let history = CycleHistory(currentCycle: cycle, previousCycles: [])
+
+            // Save in new format and remove old key
+            try? saveHistory(history)
+            userDefaults.removeObject(forKey: StorageKeys.legacyCurrentCycle)
+
+            #if DEBUG
+            print("Successfully migrated legacy cycle data to new history format")
+            #endif
+
+            return history
+        } catch {
+            #if DEBUG
+            print("Failed to migrate legacy data: \(error)")
             #endif
             return nil
         }
@@ -209,8 +243,11 @@ actor DataManager {
 private extension DataManager {
     /// Keys used for UserDefaults storage
     enum StorageKeys {
-        /// Key for storing the current lens cycle
-        static let currentCycle = "currentLensCycle"
+        /// Key for storing the cycle history (new format)
+        static let cycleHistory = "cycleHistory"
+
+        /// Legacy key for single cycle storage (for migration)
+        static let legacyCurrentCycle = "currentLensCycle"
     }
 }
 
@@ -233,10 +270,9 @@ extension DataManager {
     }
 
     /// Resets all stored data (for testing only)
-    func resetAllData() async {
-        currentCycle = nil
-        userDefaults.removeObject(forKey: StorageKeys.currentCycle)
-        userDefaults.synchronize()
+    func resetAllData() {
+        userDefaults.removeObject(forKey: StorageKeys.cycleHistory)
+        userDefaults.removeObject(forKey: StorageKeys.legacyCurrentCycle)
     }
 }
 #endif

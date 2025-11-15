@@ -107,9 +107,7 @@ struct DashboardView: View {
                     title: viewModel.hasWornToday ? "Logged for Today" : "Log Today's Wear",
                     isLogged: viewModel.hasWornToday,
                     action: {
-                        Task {
-                            await viewModel.logTodayWear()
-                        }
+                        viewModel.logTodayWear()
                     }
                 )
 
@@ -264,11 +262,9 @@ struct DashboardView: View {
     // MARK: - Helper Methods
 
     /// Formats a date for display in metadata section
+    /// Uses cached formatter for better performance
     private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
+        return CachedDateFormatters.medium.string(from: date)
     }
 }
 
