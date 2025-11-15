@@ -18,9 +18,12 @@ struct SettingsSheet: View {
 
     @State private var selectedLensType: LensType = .biweekly
     @State private var newStartDate: Date = Date()
+    @State private var editedStartDate: Date = Date()
     @State private var showingLensTypeConfirmation = false
     @State private var showingResetConfirmation = false
+    @State private var showingStartDateConfirmation = false
     @State private var pendingLensType: LensType?
+    @State private var pendingStartDate: Date?
 
     // MARK: - Body
 
@@ -80,6 +83,25 @@ struct SettingsSheet: View {
             } message: {
                 Text("This will clear your current cycle and start fresh. Your history will be preserved.")
             }
+            .alert("Change Start Date?", isPresented: $showingStartDateConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    // Reset to current start date
+                    if let currentDate = viewModel.currentCycle?.startDate {
+                        editedStartDate = currentDate
+                    }
+                    pendingStartDate = nil
+                }
+                Button("Change Date") {
+                    if let newDate = pendingStartDate {
+                        viewModel.updateStartDate(to: newDate)
+                        pendingStartDate = nil
+                    }
+                }
+            } message: {
+                if let newDate = pendingStartDate {
+                    Text("Change start date to \(newDate, style: .date)? Your wear history will be preserved.")
+                }
+            }
             .alert("Error", isPresented: .constant(viewModel.errorMessage != nil)) {
                 Button("OK") {
                     viewModel.errorMessage = nil
@@ -91,9 +113,10 @@ struct SettingsSheet: View {
             }
         }
         .onAppear {
-            // Initialize selected lens type from current cycle
-            if let currentType = viewModel.currentCycle?.lensType {
-                selectedLensType = currentType
+            // Initialize selected lens type and start date from current cycle
+            if let cycle = viewModel.currentCycle {
+                selectedLensType = cycle.lensType
+                editedStartDate = cycle.startDate
             }
         }
     }
@@ -142,11 +165,26 @@ struct SettingsSheet: View {
     // MARK: - Current Cycle Info Section
 
     private var currentCycleInfoSection: some View {
-        Section("Current Cycle") {
+        Section {
             if let cycle = viewModel.currentCycle {
-                LabeledContent("Start Date") {
-                    Text(cycle.startDate, style: .date)
-                        .foregroundStyle(.secondary)
+                DatePicker(
+                    "Start Date",
+                    selection: $editedStartDate,
+                    in: ...Date(),
+                    displayedComponents: .date
+                )
+                .onChange(of: editedStartDate) { oldValue, newValue in
+                    // Only trigger if the user changed it from the current cycle's start date
+                    guard let currentStartDate = viewModel.currentCycle?.startDate else { return }
+
+                    let normalizedCurrent = Calendar.current.startOfDay(for: currentStartDate)
+                    let normalizedNew = Calendar.current.startOfDay(for: newValue)
+
+                    // Only show confirmation if user changed from the actual current start date
+                    if normalizedNew != normalizedCurrent {
+                        pendingStartDate = newValue
+                        showingStartDateConfirmation = true
+                    }
                 }
 
                 LabeledContent("Days Worn") {
@@ -171,6 +209,10 @@ struct SettingsSheet: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
+        } header: {
+            Text("Current Cycle")
+        } footer: {
+            Text("Adjust the start date if needed. Wear history will be preserved.")
         }
     }
 

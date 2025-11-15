@@ -189,6 +189,23 @@ struct LensCycle: Identifiable, Codable, Sendable, Equatable {
             wearDates: []
         )
     }
+
+    /// Updates the start date of the current cycle
+    ///
+    /// This method returns a new `LensCycle` instance with an updated start date
+    /// while preserving the same id, lens type, and wear history. Use this when
+    /// the user needs to correct the start date without creating a new cycle.
+    ///
+    /// - Parameter newDate: The new start date for the cycle
+    /// - Returns: New `LensCycle` with updated start date but same id and wear history
+    func updateStartDate(to newDate: Date) -> LensCycle {
+        LensCycle(
+            id: id,
+            startDate: newDate,
+            lensType: lensType,
+            wearDates: wearDates
+        )
+    }
 }
 
 // MARK: - Preview Helpers

@@ -340,6 +340,42 @@ final class LensTrackerViewModel {
         isLoading = false
     }
 
+    /// Updates the start date of the current cycle
+    ///
+    /// This method changes the start date of the current cycle without creating
+    /// a new cycle or losing wear history. Use this when the user needs to correct
+    /// the start date without starting over.
+    ///
+    /// - Parameter newDate: The new start date for the cycle
+    func updateStartDate(to newDate: Date) {
+        guard let cycle = currentCycle else {
+            errorMessage = "No active lens cycle to update"
+            return
+        }
+
+        // Validate that the new date is not in the future
+        let today = Calendar.current.startOfDay(for: Date())
+        let normalizedNewDate = Calendar.current.startOfDay(for: newDate)
+
+        guard normalizedNewDate <= today else {
+            errorMessage = "Start date cannot be in the future"
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            let updatedCycle = cycle.updateStartDate(to: normalizedNewDate)
+            try dataManager.updateCycle(updatedCycle)
+            currentCycle = updatedCycle
+        } catch {
+            handleError(error)
+        }
+
+        isLoading = false
+    }
+
     // MARK: - Error Handling
 
     /// Handles errors and converts them to user-friendly messages
